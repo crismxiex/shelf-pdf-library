@@ -51,6 +51,17 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(book_id);
 
+  -- Focus mode sessions. Kept after they end, so reading time per book can be shown later.
+  CREATE TABLE IF NOT EXISTS focus_sessions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id      INTEGER REFERENCES books(id) ON DELETE SET NULL,
+    started_at   TEXT NOT NULL,
+    ends_at      TEXT NOT NULL,
+    start_page   INTEGER,
+    ended_at     TEXT,              -- NULL while the session is running
+    ended_early  INTEGER NOT NULL DEFAULT 0
+  );
+
   -- Files you removed from the library (but kept on disk), so the startup scan doesn't re-add them.
   CREATE TABLE IF NOT EXISTS ignored_files (
     file_hash   TEXT PRIMARY KEY,

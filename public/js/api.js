@@ -32,6 +32,10 @@ export const api = {
   renameFolder: (id, name) => request('PATCH', `/api/folders/${id}`, { name }),
   deleteFolder: (id) => request('DELETE', `/api/folders/${id}`),
 
+  focus: () => request('GET', '/api/focus'),
+  startFocus: (bookId, minutes, startPage) => request('POST', '/api/focus', { bookId, minutes, startPage }),
+  endFocus: (phrase) => request('POST', '/api/focus/end', { phrase }),
+
   settings: () => request('GET', '/api/settings'),
   saveSettings: (s) => request('PUT', '/api/settings', s),
   rescan: () => request('POST', '/api/rescan'),

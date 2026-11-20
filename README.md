@@ -152,6 +152,22 @@ and again when you close the tab. Reopening a book jumps straight back to where 
 | Dark mode | `D`, or the moon button |
 | Full screen | `F`, or the full-screen button (move the mouse to the top to see the toolbar) |
 
+### Focus mode
+
+Click the **target** button in the reader toolbar, pick a duration (15–90 minutes, or type any number), and start.
+
+- Shelf goes full screen and locks to that book: the *Back to library* button is hidden, opening another book
+  redirects you back, and the library shows a lock screen with the countdown.
+- Closing or reloading the tab asks for confirmation. If you leave anyway, the session keeps running on the
+  server, so Shelf is still locked when you come back, even after restarting the browser.
+- If you leave full screen (`Esc`), a banner offers to go back.
+- To stop early, click **End early…** and type the unlock phrase **`IWANTTOENDSESSION`** exactly.
+  Pasting is turned off. You can change the phrase with `focusUnlockPhrase` in `config.json`.
+- When the timer runs out, Shelf unlocks and shows how many pages you read.
+
+What a web page can't do: it can't stop you from switching to another program, closing the whole browser
+or stopping the Shelf server. Focus mode locks *Shelf*, not your PC.
+
 ## Troubleshooting
 
 - **"Port 8765 is already used by another program"**: open `config.json`, change `"port"` to e.g. `8766`, and start again.

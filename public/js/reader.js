@@ -5,6 +5,7 @@ import {
   el, icon, hydrateIcons, applyTheme, toggleTheme, currentTheme, toast, openDialog, promptDialog,
   confirmDialog, relativeTime,
 } from './ui.js';
+import { loadFocus, remainingMs, formatRemaining, askToEndEarly, sessionMinutes } from './focus.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/build/pdf.worker.mjs';
 // pdf_viewer.mjs reads globalThis.pdfjsLib, so it must load after pdf.mjs.
@@ -239,6 +240,115 @@ function setPanel(open) {
   refit();
 }
 
+// ---------- focus mode ----------
+
+let focus = null;          // { session, phrase, offset } while a session runs
+let focusTimer = null;
+
+const leaveGuard = (e) => { e.preventDefault(); e.returnValue = ''; };
+
+function enterFullscreen() {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+}
+
+function updateFsBanner() {
+  $('fsBanner').hidden = !(focus && !document.fullscreenElement);
+}
+
+function enterFocusUi() {
+  document.body.classList.add('focus-mode');
+  $('focusPill').hidden = false;
+  window.addEventListener('beforeunload', leaveGuard);
+  const tick = () => {
+    const ms = remainingMs(focus);
+    $('focusTime').textContent = `${formatRemaining(ms)} left`;
+    if (ms <= 0) completeFocus();
+  };
+  tick();
+  focusTimer = setInterval(tick, 1000);
+  updateFsBanner();
+}
+
+function exitFocusUi() {
+  clearInterval(focusTimer);
+  focus = null;
+  document.body.classList.remove('focus-mode');
+  $('focusPill').hidden = true;
+  window.removeEventListener('beforeunload', leaveGuard);
+  updateFsBanner();
+}
+
+async function completeFocus() {
+  const { session } = focus;
+  exitFocusUi();
+  api.endFocus('').catch(() => {});
+  await saveNow();
+  const pages = session.startPage ? viewer.currentPageNumber - session.startPage : 0;
+  openDialog({
+    title: 'Focus session complete',
+    message: `Nice work: ${sessionMinutes(session)} ${sessionMinutes(session) === 1 ? 'minute' : 'minutes'} on “${session.title || book.title}”` +
+      (pages > 0 ? `, ${pages} ${pages === 1 ? 'page' : 'pages'} further.` : '.') + '\n\nShelf is unlocked.',
+    actions: [{ label: 'Done', value: true, primary: true }],
+  });
+}
+
+async function startFocus() {
+  if (focus || !pageCount) return;
+  const chips = el('div', { class: 'chips' }, [15, 25, 45, 60, 90].map((m) => el('button', {
+    class: 'chip', type: 'button',
+    onclick: (e) => { const input = e.target.closest('form').querySelector('input'); input.value = m; input.focus(); },
+  }, `${m} min`)));
+  let phrase = 'IWANTTOENDSESSION';
+  try { phrase = (await loadFocus()).phrase; } catch { /* use the default text */ }
+  const r = await openDialog({
+    title: 'Start a focus session',
+    message: `Shelf goes full screen and stays locked to this book until the timer runs out. ` +
+      `Leaving the page asks for confirmation, and the library stays locked even if you close the tab.\n\n` +
+      `To stop early you'll have to type ${phrase}.`,
+    body: chips,
+    input: { label: 'Minutes', value: '25', maxlength: 3 },
+    actions: [{ label: 'Cancel', value: false }, { label: 'Start focus', value: true, primary: true }],
+  });
+  if (!r.value) return;
+  const minutes = Number(String(r.input).replace(',', '.'));
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > 600) {
+    toast('Enter a number of minutes between 1 and 600.', { type: 'error' });
+    return;
+  }
+  enterFullscreen();   // must happen right after the click, before any waiting
+  try {
+    await api.startFocus(bookId, minutes, viewer.currentPageNumber);
+    focus = await loadFocus();
+    enterFocusUi();
+    toast(`Focus session started: ${minutes} minutes. Happy reading.`);
+  } catch (err) {
+    toast(err.message, { type: 'error' });
+  }
+}
+
+/** Returns false if this page is redirecting to the book a running session is locked to. */
+async function resumeFocusIfRunning() {
+  let f;
+  try { f = await loadFocus(); } catch { return true; }
+  if (!f.session) return true;
+  if (f.session.bookId !== bookId) {
+    location.replace(`/reader.html?id=${f.session.bookId}`);
+    return false;
+  }
+  focus = f;
+  enterFocusUi();
+  return true;
+}
+
+$('focusBtn').addEventListener('click', startFocus);
+$('focusEnd').addEventListener('click', async () => {
+  if (focus && await askToEndEarly(focus.phrase)) {
+    exitFocusUi();
+    toast('Focus session ended early. Shelf is unlocked.');
+  }
+});
+$('fsReturn').addEventListener('click', enterFullscreen);
+
 // ---------- events ----------
 
 eventBus.on('pagechanging', () => { updatePageUi(); scheduleSave(); });
@@ -270,6 +380,7 @@ $('fullBtn').addEventListener('click', () => {
 document.addEventListener('fullscreenchange', () => {
   document.body.classList.toggle('is-fullscreen', Boolean(document.fullscreenElement));
   renderToggleIcons();
+  updateFsBanner();
   refit();
 });
 document.addEventListener('mousemove', (e) => {
@@ -313,6 +424,8 @@ async function init() {
   renderToggleIcons();
 
   if (!Number.isInteger(bookId) || bookId < 1) return showError('No book selected');
+  // A running focus session locks Shelf to its book.
+  if (!(await resumeFocusIfRunning())) return;
   try {
     book = await api.book(bookId);
   } catch (err) {

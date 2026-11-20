@@ -16,6 +16,8 @@ const DEFAULTS = {
   host: '127.0.0.1',
   // Leave empty to use the default: <your user folder>\Documents\Books
   booksDir: '',
+  // What you must type to end a focus session before its timer runs out.
+  focusUnlockPhrase: 'IWANTTOENDSESSION',
 };
 
 let current = null;

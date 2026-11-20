@@ -49,6 +49,7 @@
       <span class="rbar-sep"></span>
       <button id="bookmarkBtn" class="icon-btn" type="button" title="Bookmark this page (B)" aria-label="Bookmark this page"><span data-icon="bookmark"></span></button>
       <button id="panelBtn" class="icon-btn" type="button" title="Bookmarks" aria-label="Show bookmarks"><span data-icon="list"></span></button>
+      <button id="focusBtn" class="icon-btn" type="button" title="Focus mode: lock Shelf to this book for a set time" aria-label="Start focus mode"><span data-icon="focus"></span></button>
       <button id="darkBtn" class="icon-btn" type="button" title="Dark mode (D)" aria-label="Toggle dark mode"></button>
       <button id="fullBtn" class="icon-btn" type="button" title="Full screen (F)" aria-label="Full screen"></button>
     </div>
@@ -68,6 +69,16 @@
     <button id="panelAdd" class="btn panel-add" type="button"><span data-icon="plus" data-size="16"></span> Bookmark this page</button>
     <div id="bookmarkList" class="bm-list"></div>
   </aside>
+
+  <div id="focusPill" class="focus-pill" role="timer" aria-live="off" hidden>
+    <span data-icon="lock" data-size="16"></span>
+    <span id="focusTime">0:00</span>
+    <button id="focusEnd" class="btn" type="button">End early…</button>
+  </div>
+  <div id="fsBanner" class="fs-banner" hidden>
+    <span>You left full screen.</span>
+    <button id="fsReturn" class="btn btn-primary" type="button">Return to full screen</button>
+  </div>
 
   <div id="loadError" class="load-error" hidden></div>
 

@@ -321,6 +321,55 @@ app.delete('/api/bookmarks/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- focus mode ----------
+// The session lives on the server, so closing the tab or restarting the browser doesn't end it:
+// Shelf stays locked to the book until the timer runs out or the unlock phrase is typed.
+
+const unlockPhrase = () => String(config.get().focusUnlockPhrase || 'IWANTTOENDSESSION');
+
+function activeFocus() {
+  const s = db.prepare(`SELECT f.id, f.book_id AS bookId, f.started_at AS startedAt, f.ends_at AS endsAt,
+                               f.start_page AS startPage, b.title
+                        FROM focus_sessions f LEFT JOIN books b ON b.id = f.book_id
+                        WHERE f.ended_at IS NULL ORDER BY f.id DESC LIMIT 1`).get();
+  if (!s) return null;
+  // Time's up (or the book was removed): close the session.
+  if (Date.parse(s.endsAt) <= Date.now() || s.bookId == null) {
+    db.prepare('UPDATE focus_sessions SET ended_at = ends_at WHERE id = ?').run(s.id);
+    return null;
+  }
+  return s;
+}
+
+app.get('/api/focus', (_req, res) => {
+  res.json({ session: activeFocus(), phrase: unlockPhrase(), serverTime: now() });
+});
+
+app.post('/api/focus', (req, res) => {
+  const bookId = intParam(req.body?.bookId, 'book');
+  if (!rawBook(bookId)) throw new HttpError(404, 'Book not found.');
+  const minutes = Number(req.body?.minutes);
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > 600) throw new HttpError(400, 'Choose between 1 and 600 minutes.');
+  if (activeFocus()) throw new HttpError(409, 'A focus session is already running.');
+  const start = new Date();
+  const ends = new Date(start.getTime() + Math.round(minutes * 60) * 1000);
+  const startPage = Number.isInteger(req.body?.startPage) ? req.body.startPage : null;
+  db.prepare('INSERT INTO focus_sessions (book_id, started_at, ends_at, start_page) VALUES (?, ?, ?, ?)')
+    .run(bookId, start.toISOString(), ends.toISOString(), startPage);
+  res.status(201).json({ session: activeFocus(), phrase: unlockPhrase(), serverTime: now() });
+});
+
+// Ends the running session. Before the timer is up, the unlock phrase is required.
+app.post('/api/focus/end', (req, res) => {
+  const s = activeFocus();
+  if (!s) return res.json({ ok: true, endedEarly: false });
+  if (String(req.body?.phrase ?? '').trim() !== unlockPhrase()) {
+    throw new HttpError(403, 'That isn\'t the unlock phrase. Keep reading!');
+  }
+  db.prepare('UPDATE focus_sessions SET ended_at = ?, ended_early = 1 WHERE id = ?').run(now(), s.id);
+  res.json({ ok: true, endedEarly: true });
+});
+
 // ---------- folders ----------
 
 function folderName(value) {

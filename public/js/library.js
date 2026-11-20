@@ -5,6 +5,7 @@ import {
   confirmDialog, showMenu, relativeTime, percentRead, formatSize,
 } from './ui.js';
 import { requestCover } from './covers.js';
+import { loadFocus, showLibraryLock } from './focus.js';
 
 const $ = (id) => document.getElementById(id);
 const BOOK_MIME = 'application/x-shelf-book';
@@ -933,6 +934,7 @@ $('main').addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (document.body.classList.contains('focus-locked')) return;
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return;
   if (document.querySelector('dialog[open], .menu')) return;
   const ctrl = e.ctrlKey || e.metaKey;
@@ -947,8 +949,20 @@ document.addEventListener('keydown', (e) => {
   } else if (key === 'delete' && state.selected.size) { e.preventDefault(); removeSelected(); }
 });
 
-// Refresh progress when coming back from the reader (back button or another tab).
-window.addEventListener('pageshow', (e) => { if (e.persisted) load(); });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+// While a focus session runs, the library is covered by a lock screen.
+async function checkFocusLock() {
+  if (document.body.classList.contains('focus-locked')) return;
+  try {
+    const focus = await loadFocus();
+    if (focus.session) showLibraryLock(focus, load);
+  } catch { /* server unreachable: load() already reports it */ }
+}
 
+// Refresh progress (and the focus lock) when coming back from the reader or another tab.
+window.addEventListener('pageshow', (e) => { if (e.persisted) { load(); checkFocusLock(); } });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { load(); checkFocusLock(); }
+});
+
+checkFocusLock();
 load();

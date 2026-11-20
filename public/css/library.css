@@ -177,6 +177,21 @@ body.has-selection #toasts { bottom: 88px; }
 .sel-count { font-weight: 650; margin-right: 6px; white-space: nowrap; }
 .btn-quiet-danger { color: var(--danger); }
 
+/* ---------- focus lock ---------- */
+
+.focus-lock {
+  position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+}
+.focus-lock-card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 420px; padding: 36px 40px;
+  border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-lg); text-align: center;
+}
+.focus-lock-icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.focus-lock-card h2 { margin: 0; font: 650 20px var(--font-display); }
+.focus-lock-card p { margin: 0; color: var(--muted); }
+.focus-lock-time { margin: 4px 0 8px; font: 650 46px/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+
 /* ---------- duplicates ---------- */
 
 .dupes { display: flex; flex-direction: column; gap: 18px; }
