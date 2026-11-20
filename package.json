@@ -1,0 +1,19 @@
+{
+  "name": "shelf-pdf-library",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A local PDF library and reader that remembers where you left off.",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "start:open": "node --disable-warning=ExperimentalWarning server/index.js --open"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "pdfjs-dist": "4.10.38"
+  }
+}
