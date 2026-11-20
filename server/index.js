@@ -20,7 +20,8 @@ fs.mkdirSync(TMP_DIR, { recursive: true });
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(ROOT, 'public')));
+// "no-cache" = the browser may keep a copy but must check for a newer one, so updates show up after a restart.
+app.use(express.static(path.join(ROOT, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 app.use('/vendor/pdfjs', express.static(path.dirname(require.resolve('pdfjs-dist/package.json')), { maxAge: '7d' }));
 
 // ---------- helpers ----------
@@ -28,7 +29,7 @@ app.use('/vendor/pdfjs', express.static(path.dirname(require.resolve('pdfjs-dist
 const BOOK_SELECT = `
   SELECT b.id, b.title, b.file_path AS filePath, b.file_size AS fileSize, b.page_count AS pageCount,
          b.folder_id AS folderId, b.cover_status AS coverStatus, b.added_at AS addedAt,
-         b.last_opened_at AS lastOpenedAt, b.missing, b.meta_checked AS metaChecked,
+         b.last_opened_at AS lastOpenedAt, b.missing, b.meta_checked AS metaChecked, b.file_hash AS fileHash,
          p.page, p.scroll_ratio AS scrollRatio, p.zoom, p.updated_at AS progressUpdatedAt,
          (SELECT COUNT(*) FROM bookmarks bm WHERE bm.book_id = b.id) AS bookmarkCount
   FROM books b LEFT JOIN progress p ON p.book_id = b.id`;

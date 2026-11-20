@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import {
   el, icon, hydrateIcons, applyTheme, toggleTheme, currentTheme, toast, openDialog, promptDialog,
-  confirmDialog, showMenu, relativeTime, percentRead,
+  confirmDialog, showMenu, relativeTime, percentRead, formatSize,
 } from './ui.js';
 import { requestCover } from './covers.js';
 
@@ -29,13 +29,13 @@ function setPref(key, value) {
 
 function parseHash() {
   const h = decodeURIComponent(location.hash.slice(1));
-  if (h === 'unsorted') return 'unsorted';
+  if (h === 'unsorted' || h === 'duplicates') return h;
   const m = /^folder\/(\d+)$/.exec(h);
   return m ? Number(m[1]) : 'all';
 }
 
 function viewHash(view) {
-  if (view === 'unsorted') return '#unsorted';
+  if (view === 'unsorted' || view === 'duplicates') return `#${view}`;
   if (typeof view === 'number') return `#folder/${view}`;
   return '#all';
 }
@@ -126,13 +126,13 @@ function render() {
   renderMain();
 }
 
-function navItem({ view, label, iconName, count, pct, folder }) {
+function navItem({ view, label, iconName, count, pct, folder, noDrop = false }) {
   const active = state.view === view;
   const item = el('a', {
     class: `nav-item ${active ? 'active' : ''}`,
     href: viewHash(view),
     'aria-current': active ? 'page' : null,
-    dataset: {
+    dataset: noDrop ? {} : {
       dropFolder: folder ? String(folder.id) : 'none',
       dropName: folder ? folder.name : (view === 'all' ? 'your library' : 'Unsorted'),
     },
@@ -164,6 +164,7 @@ function renderNav() {
   nav.replaceChildren(
     navItem({ view: 'all', label: 'All books', iconName: 'books', count: state.books.length }),
     navItem({ view: 'unsorted', label: 'Unsorted', iconName: 'inbox', count: unsorted.length }),
+    navItem({ view: 'duplicates', label: 'Duplicates', iconName: 'copy', count: extraCopies(findDuplicates()), noDrop: true }),
     el('div', { class: 'nav-section' },
       el('h3', {}, 'Folders'),
       el('button', { class: 'icon-btn', type: 'button', title: 'New folder', 'aria-label': 'New folder', onclick: createFolder },
@@ -256,12 +257,16 @@ function resumeCard(book) {
 
 function renderMain() {
   const { view } = state;
+  $('scanBanner').hidden = !state.scanning;
+  const showDupes = view === 'duplicates';
+  $('grid').hidden = showDupes;
+  $('dupes').hidden = !showDupes;
+  if (showDupes) return renderDuplicates();
+
   let books = booksInView(view);
   const q = normalize(state.search.trim());
   if (q) books = books.filter((b) => normalize(b.title).includes(q));
   books = [...books].sort(SORTERS[state.sort] || SORTERS.recent);
-
-  $('scanBanner').hidden = !state.scanning;
 
   // "Continue reading" row: most recently opened, unfinished books (only on the All books view).
   const recent = view === 'all' && !q
@@ -304,6 +309,128 @@ function emptyState(q, countInView) {
         : 'Every book is in a folder.'));
   }
   return '';
+}
+
+// ---------- duplicates ----------
+
+// A loose key for titles, so "Python for Data Analysis" and "python-for-data-analysis" match.
+const titleKey = (t) => normalize(t).replace(/[^\p{L}\p{N}]+/gu, '');
+
+/**
+ * Groups of books that look like the same book:
+ *  - identical: the files have exactly the same content (same SHA-256 hash)
+ *  - title: same title, but different files (e.g. downloaded twice from different places)
+ */
+function findDuplicates() {
+  const groups = [];
+  const grouped = new Set();
+  const byHash = new Map();
+  const byTitle = new Map();
+  for (const b of state.books) {
+    if (b.fileHash) byHash.set(b.fileHash, [...(byHash.get(b.fileHash) || []), b]);
+    const key = titleKey(b.title);
+    if (key) byTitle.set(key, [...(byTitle.get(key) || []), b]);
+  }
+  for (const books of byTitle.values()) {
+    if (books.length < 2) continue;
+    const identical = books.every((b) => b.fileHash === books[0].fileHash);
+    groups.push({ kind: identical ? 'identical' : 'title', books });
+    books.forEach((b) => grouped.add(b.id));
+  }
+  // Identical files with different titles (e.g. one was renamed).
+  for (const books of byHash.values()) {
+    const rest = books.filter((b) => !grouped.has(b.id));
+    if (books.length > 1 && rest.length) {
+      groups.push({ kind: 'identical', books });
+      books.forEach((b) => grouped.add(b.id));
+    }
+  }
+  return groups.sort((a, b) => a.books[0].title.localeCompare(b.books[0].title, undefined, { sensitivity: 'base' }));
+}
+
+const copies = (n, prefix = '') => `${n} ${prefix}${n === 1 ? 'copy' : 'copies'}`;
+const extraCopies = (groups) => groups.reduce((n, g) => n + g.books.length - 1, 0);
+
+function renderDuplicates() {
+  const q = normalize(state.search.trim());
+  const all = findDuplicates();
+  const groups = q ? all.filter((g) => g.books.some((b) => normalize(b.title).includes(q))) : all;
+
+  $('continue').hidden = true;
+  $('viewTitle').textContent = 'Duplicates';
+  document.title = 'Duplicates · Shelf';
+  $('viewBar').hidden = true;
+  $('viewSub').textContent = all.length
+    ? `${plural(all.length, 'book')} with more than one copy · ${copies(extraCopies(all), 'extra ')}`
+    : `Checked ${plural(state.books.length, 'book')}`;
+
+  $('dupes').replaceChildren(...groups.map(duplicateGroup));
+  if (groups.length) $('empty').replaceChildren('');
+  else if (q) $('empty').replaceChildren(emptyState(q, 1));
+  else {
+    $('empty').replaceChildren(el('div', { class: 'empty' }, icon('check', 30), el('h3', {}, 'No duplicates found'),
+      el('p', {}, 'None of your books share the same file or the same title.')));
+  }
+}
+
+function duplicateGroup(group) {
+  const furthest = Math.max(...group.books.map((b) => b.page || 0));
+  return el('section', { class: 'dupe-group' },
+    el('header', { class: 'dupe-head' },
+      el('h3', {}, group.books[0].title),
+      el('span', { class: `tag ${group.kind === 'identical' ? 'tag-strong' : ''}` },
+        group.kind === 'identical' ? 'Identical files' : 'Same title, different files')),
+    el('div', { class: 'dupe-list' }, group.books.map((book) => {
+      const pct = percentRead(book);
+      const facts = [
+        folderLabel(book.folderId),
+        book.pageCount ? plural(book.pageCount, 'page') : null,
+        formatSize(book.fileSize),
+        `added ${relativeTime(book.addedAt)}`,
+      ].filter(Boolean).join(' · ');
+      return el('div', { class: 'dupe-item' },
+        el('a', { href: readerUrl(book), class: 'dupe-cover', title: 'Open' }, coverEl(book)),
+        el('div', { class: 'dupe-info' },
+          el('div', { class: 'dupe-title' }, book.title,
+            book.page && book.page === furthest && furthest > 1 ? el('span', { class: 'tag' }, 'Furthest read') : null),
+          el('div', { class: 'dupe-meta' }, book.page
+            ? `${pct}% read · page ${book.page}${book.pageCount ? ` of ${book.pageCount}` : ''} · last read ${relativeTime(book.lastOpenedAt)}`
+            : 'Not started'),
+          el('div', { class: 'dupe-meta' }, facts),
+          el('div', { class: 'dupe-path', title: book.filePath }, book.filePath)),
+        el('div', { class: 'dupe-actions' },
+          el('button', { class: 'btn btn-primary', type: 'button', onclick: () => keepOnly(book, group) }, 'Keep this one'),
+          el('button', { class: 'btn', type: 'button', onclick: () => removeBook(book) }, 'Remove…')));
+    })));
+}
+
+async function keepOnly(keep, group) {
+  const others = group.books.filter((b) => b.id !== keep.id);
+  const further = others.filter((b) => (b.page || 0) > (keep.page || 0));
+  const warning = further.length
+    ? `\n\nHeads up: another copy is further along (page ${Math.max(...further.map((b) => b.page))}) than the one you're keeping (${keep.page ? `page ${keep.page}` : 'not started'}).`
+    : '';
+  const { ok, checked } = await confirmDialog({
+    title: `Keep this copy of “${keep.title}”?`,
+    message: (others.length === 1
+      ? 'The other copy will be removed from your library, with its reading progress and bookmarks.'
+      : `The other ${copies(others.length)} will be removed from your library, with their reading progress and bookmarks.`)
+      + `${warning}\n\n${others.length === 1 ? 'Its PDF file stays' : 'Their PDF files stay'} on your PC unless you tick the box below.`,
+    checkbox: { label: 'Also delete the other files from my PC (they go to the Recycle Bin)' },
+    confirmLabel: `Remove ${others.length === 1 ? 'the other copy' : `${others.length} copies`}`,
+    danger: true,
+  });
+  if (!ok) return;
+  let removed = 0;
+  for (const b of others) {
+    try {
+      await api.removeBook(b.id, checked && !b.missing);
+      state.books = state.books.filter((x) => x.id !== b.id);
+      removed++;
+    } catch (err) { toast(`Couldn't remove “${b.title}”: ${err.message}`, { type: 'error' }); }
+  }
+  render();
+  if (removed) toast(`Kept one copy of “${keep.title}” and removed ${removed === 1 ? 'the other' : `${removed} others`}`);
 }
 
 // ---------- book actions ----------

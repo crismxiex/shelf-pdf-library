@@ -96,6 +96,17 @@ If your Documents folder is synced by OneDrive, the default folder may actually 
   whether to add another copy or skip it.
 - The **Add book** button opens a normal file picker.
 
+### Finding duplicates
+
+Click **Duplicates** in the sidebar (the number next to it is how many extra copies there are). It lists:
+
+- **Identical files**: copies with exactly the same content, even if renamed.
+- **Same title, different files**: e.g. the same book downloaded twice from different places.
+
+For each copy you see its folder, size, page count, reading progress and file location. Copies that are
+further along are marked **Furthest read**. Click **Keep this one** to remove the other copies in one go, or
+**Remove…** on a single copy. As everywhere in Shelf, files are only deleted (to the Recycle Bin) if you tick the box.
+
 ### Folders
 
 - Click **+** next to *Folders* in the sidebar to create one. Use **⋯** on a folder to rename or delete it.

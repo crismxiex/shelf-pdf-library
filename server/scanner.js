@@ -88,8 +88,9 @@ async function scanOnce() {
     if (known.has(samePath(file))) continue;
     try {
       const hash = await hashFile(file);
-      if (ignored.get(hash)) continue;
       const match = byHash.get(hash);
+      // Checked before the ignore list: removing an extra copy of a book puts its content on the
+      // ignore list, but the copy you kept must still be found again if you move it.
       if (match && match.missing) {
         // Same book, but it was moved or renamed: keep its progress and bookmarks.
         relink.run(file, match.id);
@@ -97,6 +98,7 @@ async function scanOnce() {
         result.missing--;
         continue;
       }
+      if (ignored.get(hash)) continue;
       if (match) {
         result.skippedDuplicates++;
         continue;
