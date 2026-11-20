@@ -2,6 +2,7 @@
   "name": "shelf-pdf-library",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "A local PDF library and reader that remembers where you left off.",
   "main": "server/index.js",
   "engines": {

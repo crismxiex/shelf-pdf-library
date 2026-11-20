@@ -220,3 +220,7 @@ The code is set up so these can be added without restructuring:
 - **Reading stats** (pages per day, streaks, time per book). Progress saves already go through one endpoint
   (`POST /api/books/:id/progress`), where a reading-sessions log can be added.
 - **Status per book** (Want to read / Reading / Finished). This needs one new column on `books`.
+
+## License
+
+[MIT](LICENSE): free to use, change and share, with no warranty.
