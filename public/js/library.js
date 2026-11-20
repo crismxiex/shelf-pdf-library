@@ -15,6 +15,10 @@ const state = {
   view: parseHash(),          // 'all' | 'unsorted' | <folder id>
   sort: pref('sort', 'recent'),
   search: '',
+  selected: new Set(),        // ids of selected book cards
+  anchor: null,               // last clicked card, for Shift+click ranges
+  visibleIds: [],             // book ids in the order they're shown (for Ctrl+A and ranges)
+  clipboard: null,            // { ids } after Ctrl+X / Ctrl+C, pasted with Ctrl+V
   scanning: false,
 };
 
@@ -219,24 +223,46 @@ function bookCard(book) {
     onclick: (e) => { e.preventDefault(); bookMenu(book, more); },
   }, icon('more', 16));
 
-  const card = el('article', { class: 'card', draggable: 'true', dataset: { bookId: book.id } },
-    el('a', { class: 'card-link', href: readerUrl(book), draggable: 'false', title: book.title },
+  const check = el('button', {
+    class: 'card-check', type: 'button', 'aria-label': `Select ${book.title}`, title: 'Select (Ctrl+click)',
+    onclick: (e) => { e.preventDefault(); e.stopPropagation(); e.shiftKey ? selectRange(book.id) : toggleSelected(book.id); },
+  }, icon('check', 14));
+
+  const isCut = state.clipboard?.ids.includes(book.id);
+  const card = el('article', {
+    class: `card ${state.selected.has(book.id) ? 'selected' : ''} ${isCut ? 'cut' : ''}`,
+    draggable: 'true', dataset: { bookId: book.id },
+  },
+    el('a', {
+      class: 'card-link', href: readerUrl(book), draggable: 'false', title: book.title,
+      // Ctrl+click toggles, Shift+click selects a range, and while something is selected a plain click
+      // adds to the selection instead of opening the book.
+      onclick: (e) => {
+        if (e.shiftKey) { e.preventDefault(); selectRange(book.id); } else if (e.ctrlKey || e.metaKey || state.selected.size) {
+          e.preventDefault();
+          toggleSelected(book.id);
+        }
+      },
+    },
       coverEl(book),
       el('h3', { class: 'card-title' }, book.title)),
+    check,
     el('div', { class: `bar ${pct === 100 ? 'done' : ''}`, title: `${pct}% read` }, el('span', { style: { width: `${pct}%` } })),
     el('div', { class: 'card-stats' }, el('strong', {}, `${pct}%`), el('span', {}, pageText(book))),
     el('div', { class: 'card-date' }, book.lastOpenedAt ? `Last read ${relativeTime(book.lastOpenedAt)}` : 'Not started yet'),
     more);
 
   card.addEventListener('dragstart', (e) => {
-    e.dataTransfer.setData(BOOK_MIME, String(book.id));
-    e.dataTransfer.setData('text/plain', book.title);
+    // Dragging a selected card drags the whole selection.
+    const ids = state.selected.has(book.id) ? [...state.selected] : [book.id];
+    e.dataTransfer.setData(BOOK_MIME, ids.join(','));
+    e.dataTransfer.setData('text/plain', ids.length > 1 ? plural(ids.length, 'book') : book.title);
     e.dataTransfer.effectAllowed = 'move';
-    card.classList.add('drag-source');
+    ids.forEach((id) => document.querySelector(`.card[data-book-id="${id}"]`)?.classList.add('drag-source'));
     document.body.classList.add('dragging', 'dragging-book');
   });
   card.addEventListener('dragend', () => {
-    card.classList.remove('drag-source');
+    document.querySelectorAll('.card.drag-source').forEach((c) => c.classList.remove('drag-source'));
     document.body.classList.remove('dragging', 'dragging-book');
     setDropHover(null);
   });
@@ -261,12 +287,20 @@ function renderMain() {
   const showDupes = view === 'duplicates';
   $('grid').hidden = showDupes;
   $('dupes').hidden = !showDupes;
-  if (showDupes) return renderDuplicates();
+  if (showDupes) {
+    state.selected.clear();
+    renderSelectionBar();
+    return renderDuplicates();
+  }
 
   let books = booksInView(view);
   const q = normalize(state.search.trim());
   if (q) books = books.filter((b) => normalize(b.title).includes(q));
   books = [...books].sort(SORTERS[state.sort] || SORTERS.recent);
+  state.visibleIds = books.map((b) => b.id);
+  // Drop selected books that are no longer shown (e.g. after searching).
+  for (const id of state.selected) if (!state.visibleIds.includes(id)) state.selected.delete(id);
+  renderSelectionBar();
 
   // "Continue reading" row: most recently opened, unfinished books (only on the All books view).
   const recent = view === 'all' && !q
@@ -447,14 +481,128 @@ function bookMenu(book, anchor) {
   ]);
 }
 
-async function moveBook(id, folderId) {
-  const book = state.books.find((b) => b.id === id);
-  if (!book || book.folderId === folderId) return;
+const moveBook = (id, folderId) => moveBooks([id], folderId);
+
+async function moveBooks(ids, folderId) {
+  const books = ids.map((id) => state.books.find((b) => b.id === id)).filter((b) => b && b.folderId !== folderId);
+  if (!books.length) {
+    toast(ids.length > 1 ? `Those books are already in ${folderLabel(folderId)}` : `Already in ${folderLabel(folderId)}`);
+    return;
+  }
   try {
-    replaceBook(await api.updateBook(id, { folderId }));
+    await api.moveBooks(books.map((b) => b.id), folderId);
+    books.forEach((b) => { b.folderId = folderId; });
+    state.selected.clear();
     render();
-    toast(`Moved “${book.title}” to ${folderLabel(folderId)}`);
+    toast(books.length === 1 ? `Moved “${books[0].title}” to ${folderLabel(folderId)}` : `Moved ${plural(books.length, 'book')} to ${folderLabel(folderId)}`);
   } catch (err) { toast(err.message, { type: 'error' }); }
+}
+
+// ---------- selection (Ctrl+click, Shift+click, Ctrl+A) ----------
+
+function syncSelectionUi() {
+  document.querySelectorAll('#grid .card').forEach((c) => c.classList.toggle('selected', state.selected.has(Number(c.dataset.bookId))));
+  renderSelectionBar();
+}
+
+function toggleSelected(id) {
+  if (state.selected.has(id)) state.selected.delete(id); else state.selected.add(id);
+  state.anchor = id;
+  syncSelectionUi();
+}
+
+function selectRange(id) {
+  const from = state.visibleIds.indexOf(state.anchor ?? id);
+  const to = state.visibleIds.indexOf(id);
+  if (from < 0 || to < 0) return toggleSelected(id);
+  const [a, b] = from < to ? [from, to] : [to, from];
+  state.visibleIds.slice(a, b + 1).forEach((x) => state.selected.add(x));
+  syncSelectionUi();
+}
+
+function selectAll() {
+  state.visibleIds.forEach((id) => state.selected.add(id));
+  syncSelectionUi();
+}
+
+function clearSelection() {
+  if (!state.selected.size) return false;
+  state.selected.clear();
+  state.anchor = null;
+  syncSelectionUi();
+  return true;
+}
+
+function moveMenu(anchor, ids) {
+  showMenu(anchor, [
+    { heading: `Move ${plural(ids.length, 'book')} to` },
+    { label: 'Unsorted', onClick: () => moveBooks(ids, null) },
+    ...state.folders.map((f) => ({ label: f.name, onClick: () => moveBooks(ids, f.id) })),
+    { separator: true },
+    { label: 'New folder…', onClick: async () => { const f = await createFolder(); if (f) moveBooks(ids, f.id); } },
+  ]);
+}
+
+function renderSelectionBar() {
+  const n = state.selected.size;
+  const bar = $('selectionBar');
+  bar.hidden = n === 0;
+  document.body.classList.toggle('has-selection', n > 0);
+  if (!n) return;
+  const ids = [...state.selected];
+  const moveBtn = el('button', { class: 'btn btn-primary', type: 'button', onclick: () => moveMenu(moveBtn, ids) }, icon('folder', 16), 'Move to…');
+  bar.replaceChildren(
+    el('span', { class: 'sel-count' }, `${n} selected`),
+    moveBtn,
+    el('button', { class: 'btn', type: 'button', title: 'Ctrl+X, then open a folder and press Ctrl+V', onclick: () => cutSelection() }, 'Cut'),
+    el('button', { class: 'btn', type: 'button', title: 'Ctrl+A', onclick: selectAll, disabled: n === state.visibleIds.length }, 'Select all'),
+    el('button', { class: 'btn btn-quiet-danger', type: 'button', title: 'Delete', onclick: removeSelected }, 'Remove…'),
+    el('button', { class: 'icon-btn', type: 'button', title: 'Clear selection (Esc)', 'aria-label': 'Clear selection', onclick: clearSelection }, icon('x', 16)));
+}
+
+function cutSelection() {
+  if (!state.selected.size) return;
+  state.clipboard = { ids: [...state.selected] };
+  state.selected.clear();
+  renderMain();
+  toast(`${plural(state.clipboard.ids.length, 'book')} ready to move. Open a folder (or Unsorted) and press Ctrl+V.`, { timeout: 6000 });
+}
+
+function paste() {
+  if (!state.clipboard) return;
+  const { view } = state;
+  if (view !== 'unsorted' && typeof view !== 'number') {
+    toast('Open a folder (or Unsorted) in the sidebar first, then press Ctrl+V to move the books there.', { type: 'warn', timeout: 6000 });
+    return;
+  }
+  const ids = state.clipboard.ids.filter((id) => state.books.some((b) => b.id === id));
+  state.clipboard = null;
+  moveBooks(ids, view === 'unsorted' ? null : view);
+}
+
+async function removeSelected() {
+  const books = [...state.selected].map((id) => state.books.find((b) => b.id === id)).filter(Boolean);
+  if (!books.length) return;
+  if (books.length === 1) return removeBook(books[0]);
+  const { ok, checked } = await confirmDialog({
+    title: `Remove ${plural(books.length, 'book')} from your library?`,
+    message: 'Their reading progress and bookmarks will be removed too.\n\nThe PDF files stay on your PC unless you tick the box below.',
+    checkbox: { label: 'Also delete these PDF files from my PC (they go to the Recycle Bin)' },
+    confirmLabel: `Remove ${plural(books.length, 'book')}`,
+    danger: true,
+  });
+  if (!ok) return;
+  let removed = 0;
+  for (const b of books) {
+    try {
+      await api.removeBook(b.id, checked && !b.missing);
+      state.books = state.books.filter((x) => x.id !== b.id);
+      removed++;
+    } catch (err) { toast(`Couldn't remove “${b.title}”: ${err.message}`, { type: 'error' }); }
+  }
+  state.selected.clear();
+  render();
+  toast(`Removed ${plural(removed, 'book')}${checked ? ' and moved the files to the Recycle Bin' : ' (files kept)'}`);
 }
 
 async function renameBook(book) {
@@ -487,12 +635,16 @@ async function removeBook(book) {
 
 async function createFolder() {
   const name = await promptDialog({ title: 'New folder', label: 'Folder name', placeholder: 'e.g. Programming, Philosophy, Finance', confirmLabel: 'Create' });
-  if (!name) return;
+  if (!name) return null;
   try {
-    await api.createFolder(name);
+    const folder = await api.createFolder(name);
     state.folders = await api.folders();
     render();
-  } catch (err) { toast(err.message, { type: 'error' }); }
+    return folder;
+  } catch (err) {
+    toast(err.message, { type: 'error' });
+    return null;
+  }
 }
 
 async function renameFolder(folder) {
@@ -706,7 +858,8 @@ document.addEventListener('drop', (e) => {
   clearTimeout(dragEndTimer);
   endFileDrag();
   if (kind === 'book') {
-    if (target) moveBook(Number(e.dataTransfer.getData(BOOK_MIME)), targetFolderId(target));
+    const ids = e.dataTransfer.getData(BOOK_MIME).split(',').map(Number).filter(Boolean);
+    if (target && ids.length) moveBooks(ids, targetFolderId(target));
     return;
   }
   const folderId = target ? targetFolderId(target) : typeof state.view === 'number' ? state.view : null;
@@ -766,13 +919,32 @@ $('filePicker').addEventListener('change', (e) => {
 $('uploadsClose').addEventListener('click', closeUploads);
 $('search').addEventListener('input', (e) => { state.search = e.target.value; renderMain(); });
 $('sort').addEventListener('change', (e) => { state.sort = e.target.value; setPref('sort', state.sort); renderMain(); });
-window.addEventListener('hashchange', () => { state.view = parseHash(); render(); $('main').scrollTop = 0; });
+window.addEventListener('hashchange', () => {
+  state.view = parseHash();
+  state.selected.clear();   // the cut "clipboard" survives, so you can paste in the folder you just opened
+  state.anchor = null;
+  render();
+  $('main').scrollTop = 0;
+});
+
+// Clicking empty space in the library clears the selection.
+$('main').addEventListener('click', (e) => {
+  if (!e.target.closest('.card, .resume, button, a, .dupe-group')) clearSelection();
+});
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) {
-    e.preventDefault();
-    $('search').focus();
-  }
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return;
+  if (document.querySelector('dialog[open], .menu')) return;
+  const ctrl = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  const inGrid = state.view !== 'duplicates';
+  if (key === '/' && !ctrl) { e.preventDefault(); $('search').focus(); }
+  else if (ctrl && key === 'a' && inGrid) { e.preventDefault(); selectAll(); }
+  else if (ctrl && (key === 'x' || key === 'c') && state.selected.size) { e.preventDefault(); cutSelection(); }
+  else if (ctrl && key === 'v' && state.clipboard) { e.preventDefault(); paste(); }
+  else if (key === 'escape') {
+    if (!clearSelection() && state.clipboard) { state.clipboard = null; renderMain(); }
+  } else if (key === 'delete' && state.selected.size) { e.preventDefault(); removeSelected(); }
 });
 
 // Refresh progress when coming back from the reader (back button or another tab).

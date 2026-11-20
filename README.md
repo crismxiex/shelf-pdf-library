@@ -111,6 +111,20 @@ further along are marked **Furthest read**. Click **Keep this one** to remove th
 
 - Click **+** next to *Folders* in the sidebar to create one. Use **⋯** on a folder to rename or delete it.
 - **Drag a book card onto a folder** to move it there, or onto *Unsorted* to take it out of its folder.
+- **Move many books at once** by selecting them first:
+
+  | Action | How |
+  | --- | --- |
+  | Select / unselect a book | `Ctrl`+click it, or click the round check on its cover |
+  | Select a range | click one book, then `Shift`+click another |
+  | Select everything shown | `Ctrl`+`A` (respects the current folder and search) |
+  | Move the selection | drag any selected book onto a folder, or use **Move to…** in the bar at the bottom |
+  | Cut and paste | `Ctrl`+`X` (or `Ctrl`+`C`), open a folder or *Unsorted* in the sidebar, then `Ctrl`+`V` |
+  | Remove the selection | `Delete`, or **Remove…** in the bar |
+  | Clear the selection | `Esc`, or click empty space |
+
+  A book lives in one folder at a time, so `Ctrl`+`C` / `Ctrl`+`V` moves books just like cut and paste.
+  While something is selected, a plain click adds to the selection instead of opening the book.
 - Each folder shows how many books it has and a progress bar for all of its books together.
 - Deleting a folder never deletes books; they go back to *Unsorted*.
 

@@ -17,6 +17,7 @@ export const api = {
   books: () => request('GET', '/api/books'),
   book: (id) => request('GET', `/api/books/${id}`),
   updateBook: (id, patch) => request('PATCH', `/api/books/${id}`, patch),
+  moveBooks: (ids, folderId) => request('POST', '/api/books/move', { ids, folderId }),
   removeBook: (id, deleteFile) => request('DELETE', `/api/books/${id}${deleteFile ? '?deleteFile=1' : ''}`),
   openBook: (id) => request('POST', `/api/books/${id}/open`),
   saveProgress: (id, progress) => request('POST', `/api/books/${id}/progress`, progress),

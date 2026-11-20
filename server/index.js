@@ -164,6 +164,24 @@ app.get('/api/books', (_req, res) => {
   });
 });
 
+// Move many books to a folder at once (folderId null = Unsorted).
+app.post('/api/books/move', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(Number))].filter((n) => Number.isInteger(n) && n > 0) : [];
+  if (!ids.length) throw new HttpError(400, 'No books selected.');
+  const folderId = parseFolderId(req.body.folderId);
+  const update = db.prepare('UPDATE books SET folder_id = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    let moved = 0;
+    for (const id of ids) moved += Number(update.run(folderId, id).changes);
+    db.exec('COMMIT');
+    res.json({ moved, folderId });
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+});
+
 app.get('/api/books/:id', (req, res) => {
   const book = requireBook(req);
   res.json(getBook(book.id));

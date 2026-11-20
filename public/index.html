@@ -44,7 +44,7 @@
     <div class="body">
       <aside class="sidebar" aria-label="Folders">
         <nav id="nav"></nav>
-        <div class="sidebar-foot">Tip: drag a book onto a folder to move it.</div>
+        <div class="sidebar-foot">Tip: Ctrl+click or Ctrl+A to select books, then drag them onto a folder, or press Ctrl+X, open a folder and press Ctrl+V.</div>
       </aside>
 
       <main id="main" class="main">
@@ -70,6 +70,8 @@
   <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
     <div class="drop-pill"><span data-icon="upload"></span><span id="dropLabel">Drop PDFs to add them</span></div>
   </div>
+
+  <div id="selectionBar" class="selection-bar" role="toolbar" aria-label="Selected books" hidden></div>
 
   <div id="uploads" class="uploads" hidden>
     <div class="uploads-head"><span id="uploadsTitle">Adding books</span>
